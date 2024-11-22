@@ -15,8 +15,6 @@ import (
 	_ "github.com/google/tiff/bigtiff"
 	_ "github.com/google/tiff/geotiff"
 	lru "github.com/hashicorp/golang-lru/v2"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/image/tiff/lzw"
 )
 
@@ -25,37 +23,6 @@ const noDataBits = 0xff7fffff
 var (
 	errShortRead = errors.New("short read")
 	noData       = math.Float32frombits(noDataBits)
-)
-
-var (
-	filesOpened = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_files_opened_total",
-		Help: "The total number of files opened",
-	})
-	filesClosed = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_files_closed_total",
-		Help: "The total number of files closed",
-	})
-	emptyTileCacheHits = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_empty_tile_cache_hits_total",
-		Help: "The total number of hits on the empty tile cache",
-	})
-	emptyTileCacheMisses = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_empty_tile_cache_misses_total",
-		Help: "The total number of misses on the empty tile cache",
-	})
-	tileCacheHits = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_tile_cache_hits_total",
-		Help: "The total number of hits on the tile cache",
-	})
-	tileCacheMisses = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_tile_cache_misses_total",
-		Help: "The total number of misses on the tile cache",
-	})
-	tileCacheEvictions = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_tile_cache_evictions_total",
-		Help: "The total number of evictions from the tile cache",
-	})
 )
 
 // A GeoTIFFTile is an open GeoTIFF file.
@@ -130,10 +97,8 @@ func NewGeoTIFFTile(fsys fs.FS, filename string, options ...GeoTIFFTileOption) (
 		return nil, errors.ErrUnsupported
 	}
 	f.file = file.(*os.File)
-	filesOpened.Inc()
 	defer func() {
 		if !ok {
-			filesClosed.Inc()
 			f.file.Close()
 		}
 	}()
@@ -221,7 +186,6 @@ func WithTileCacheSize(tileCacheSize int) GeoTIFFTileOption {
 }
 
 func (f *GeoTIFFTile) Close() error {
-	filesClosed.Inc()
 	return f.file.Close()
 }
 
@@ -371,13 +335,11 @@ func (f *GeoTIFFTile) getTileSamples(localTileCoord TileCoord) ([]float32, error
 func (f *GeoTIFFTile) getTileSamplesCached(localTileCoord TileCoord) ([]float32, error) {
 	// Check if the tile is known to be empty.
 	if _, ok := f.emptyTiles.Load(localTileCoord); ok {
-		emptyTileCacheHits.Inc()
 		return nil, nil
 	}
 
 	// Get tile samples from the cache, if possible.
 	if tileSamples, ok := f.tileCache.Get(localTileCoord); ok {
-		tileCacheHits.Inc()
 		return tileSamples, nil
 	}
 
@@ -386,14 +348,12 @@ func (f *GeoTIFFTile) getTileSamplesCached(localTileCoord TileCoord) ([]float32,
 
 	// Check if the tile is known to be empty.
 	if _, ok := f.emptyTiles.Load(localTileCoord); ok {
-		emptyTileCacheHits.Inc()
 		return nil, nil
 	}
 
 	// Retry getting tile samples from the cache, in case the cache was populated
 	// while the mutex was locked.
 	if tileSamples, ok := f.tileCache.Get(localTileCoord); ok {
-		tileCacheHits.Inc()
 		return tileSamples, nil
 	}
 
@@ -406,12 +366,8 @@ func (f *GeoTIFFTile) getTileSamplesCached(localTileCoord TileCoord) ([]float32,
 	// Store the samples, either as a known empty tile or in the cache.
 	if tileSamples == nil {
 		f.emptyTiles.Store(localTileCoord, struct{}{})
-		emptyTileCacheMisses.Inc()
 	} else {
-		if eviction := f.tileCache.Add(localTileCoord, tileSamples); eviction {
-			tileCacheEvictions.Inc()
-		}
-		tileCacheMisses.Inc()
+		f.tileCache.Add(localTileCoord, tileSamples)
 	}
 
 	return tileSamples, nil

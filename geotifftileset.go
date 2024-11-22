@@ -13,31 +13,6 @@ import (
 	"sync"
 
 	lru "github.com/hashicorp/golang-lru/v2"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-)
-
-var (
-	missingTileCacheHits = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_missing_tile_cache_hits_total",
-		Help: "The total number of hits on the missing tile cache",
-	})
-	missingTileCacheMisses = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_missing_tile_cache_misses_total",
-		Help: "The total number of misses on the missing tile cache",
-	})
-	globalTileCacheHits = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_global_tile_cache_hits_total",
-		Help: "The total number of hits on the global tile cache",
-	})
-	globalTileCacheMisses = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_global_tile_cache_misses_total",
-		Help: "The total number of misses on the global tile cache",
-	})
-	globalTileCacheEvictions = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "elevation_global_tile_cache_evictions_total",
-		Help: "The total number of evictions from the global tile cache",
-	})
 )
 
 // A TileCoordFunc returns the tile coordinate for a coordinate.
@@ -196,7 +171,6 @@ func (s *GeoTIFFTileSet) getTile(tileCoord TileCoord) (*GeoTIFFTile, error) {
 	switch geoTIFFTile, err := NewGeoTIFFTile(s.fsys, filename, s.geoTIFFTileOptions...); {
 	case errors.Is(err, fs.ErrNotExist):
 		s.missingTiles.Store(tileCoord, struct{}{})
-		missingTileCacheMisses.Inc()
 		return nil, nil
 	case err != nil:
 		return nil, err
@@ -209,12 +183,10 @@ func (s *GeoTIFFTileSet) getTile(tileCoord TileCoord) (*GeoTIFFTile, error) {
 // if possible.
 func (s *GeoTIFFTileSet) getTileCached(tileCoord TileCoord) (*GeoTIFFTile, error) {
 	if _, ok := s.missingTiles.Load(tileCoord); ok {
-		missingTileCacheHits.Inc()
 		return nil, nil
 	}
 
 	if tile, ok := s.geoTIFFTileCache.Get(tileCoord); ok {
-		globalTileCacheHits.Inc()
 		return tile, nil
 	}
 
@@ -222,25 +194,19 @@ func (s *GeoTIFFTileSet) getTileCached(tileCoord TileCoord) (*GeoTIFFTile, error
 	defer s.mutex.Unlock()
 
 	if _, ok := s.missingTiles.Load(tileCoord); ok {
-		missingTileCacheHits.Inc()
 		return nil, nil
 	}
 
 	if tile, ok := s.geoTIFFTileCache.Get(tileCoord); ok {
-		globalTileCacheHits.Inc()
 		return tile, nil
 	}
-
-	globalTileCacheMisses.Inc()
 
 	tile, err := s.getTile(tileCoord)
 	if err != nil {
 		return nil, err
 	}
 
-	if eviction := s.geoTIFFTileCache.Add(tileCoord, tile); eviction {
-		globalTileCacheEvictions.Inc()
-	}
+	s.geoTIFFTileCache.Add(tileCoord, tile)
 
 	return tile, nil
 }
