@@ -15,7 +15,7 @@ import (
 )
 
 func TestEUDEM_Samples(t *testing.T) {
-	fsys := os.DirFS("testdata")
+	fsys := os.DirFS("testdata/eu_dem")
 	euDEM, err := elevation.NewEUDEM(fsys)
 	assert.NoError(t, err)
 
@@ -111,7 +111,7 @@ func TestEUDEM_Samples(t *testing.T) {
 
 func BenchmarkSingleTileSingleSample(b *testing.B) {
 	r := rand.New(rand.NewPCG(0, 0))
-	euDEM, err := elevation.NewEUDEM(os.DirFS("testdata"))
+	euDEM, err := elevation.NewEUDEM(os.DirFS("testdata/eu_dem"))
 	assert.NoError(b, err)
 	b.ResetTimer()
 	for range b.N {
@@ -129,7 +129,7 @@ func BenchmarkSingleTileSingleSample(b *testing.B) {
 
 func BenchmarkSingleTileSixteenCloseSamples(b *testing.B) {
 	r := rand.New(rand.NewPCG(0, 0))
-	euDEM, err := elevation.NewEUDEM(os.DirFS("testdata"))
+	euDEM, err := elevation.NewEUDEM(os.DirFS("testdata/eu_dem"))
 	assert.NoError(b, err)
 	b.ResetTimer()
 	for range b.N {

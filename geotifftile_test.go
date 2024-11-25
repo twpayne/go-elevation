@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewGeoTIFFTile(t *testing.T) {
-	geoTIFFTile, err := NewGeoTIFFTile(os.DirFS("testdata"), "eu_dem_v11_E00N20.TIF")
+	geoTIFFTile, err := NewGeoTIFFTile(os.DirFS("testdata/eu_dem"), "eu_dem_v11_E00N20.TIF")
 	if errors.Is(err, fs.ErrNotExist) {
 		t.Skip(err)
 	}
@@ -27,7 +27,7 @@ func TestNewGeoTIFFTile(t *testing.T) {
 }
 
 func TestGeoTIFFFile_Sample(t *testing.T) {
-	geoTIFFTile, err := NewGeoTIFFTile(os.DirFS("testdata"), "eu_dem_v11_E00N20.TIF")
+	geoTIFFTile, err := NewGeoTIFFTile(os.DirFS("testdata/eu_dem"), "eu_dem_v11_E00N20.TIF")
 	if errors.Is(err, fs.ErrNotExist) {
 		t.Skip(err)
 	}
@@ -64,7 +64,7 @@ func TestGeoTIFFFile_Sample(t *testing.T) {
 }
 
 func TestGeoTIFFFile_Pixel(t *testing.T) {
-	geoTIFFTile, err := NewGeoTIFFTile(os.DirFS("testdata"), "eu_dem_v11_E00N20.TIF")
+	geoTIFFTile, err := NewGeoTIFFTile(os.DirFS("testdata/eu_dem"), "eu_dem_v11_E00N20.TIF")
 	if errors.Is(err, fs.ErrNotExist) {
 		t.Skip(err)
 	}

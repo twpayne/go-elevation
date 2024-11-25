@@ -12,7 +12,7 @@ import (
 )
 
 func TestEUDEMElevationService(t *testing.T) {
-	fsys := os.DirFS("testdata")
+	fsys := os.DirFS("testdata/eu_dem")
 	if _, err := fsys.(fs.StatFS).Stat("eu_dem_v11_E00N20.TIF"); errors.Is(err, fs.ErrNotExist) {
 		t.Skip(err)
 	}
