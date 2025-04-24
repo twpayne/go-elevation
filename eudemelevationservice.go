@@ -3,7 +3,7 @@ package elevation
 import (
 	"io/fs"
 
-	"github.com/twpayne/go-proj/v10"
+	"github.com/twpayne/go-proj/v11"
 )
 
 type EUDEMElevationService struct {
