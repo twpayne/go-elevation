@@ -25,6 +25,7 @@ type TileFilenameFunc func(TileCoord) string
 type GeoTIFFTileSet struct {
 	mutex              sync.Mutex
 	fsys               fs.FS
+	canaryFilename     string
 	srid               int
 	tileCoordFunc      TileCoordFunc
 	tileFilenameFunc   TileFilenameFunc
@@ -48,6 +49,17 @@ func NewGeoTIFFTileSet(options ...GeoTIFFTileSetOption) (*GeoTIFFTileSet, error)
 		option(s)
 	}
 
+	// If a canary filename is set, check that it can be opened.
+	if s.canaryFilename != "" {
+		file, err := s.fsys.Open(s.canaryFilename)
+		if err != nil {
+			return nil, err
+		}
+		if err := file.Close(); err != nil {
+			return nil, err
+		}
+	}
+
 	var err error
 	s.geoTIFFTileCache, err = lru.NewWithEvict(s.cacheSize, func(key TileCoord, value *GeoTIFFTile) {
 		value.Close()
@@ -61,6 +73,12 @@ func NewGeoTIFFTileSet(options ...GeoTIFFTileSetOption) (*GeoTIFFTileSet, error)
 func WithCacheSize(cacheSize int) GeoTIFFTileSetOption {
 	return func(s *GeoTIFFTileSet) {
 		s.cacheSize = cacheSize
+	}
+}
+
+func WithCanaryFilename(canaryFilename string) GeoTIFFTileSetOption {
+	return func(s *GeoTIFFTileSet) {
+		s.canaryFilename = canaryFilename
 	}
 }
 
