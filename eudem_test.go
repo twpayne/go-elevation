@@ -15,6 +15,10 @@ import (
 )
 
 func TestEUDEM_Samples(t *testing.T) {
+	if _, err := os.Stat("testdata/eu_dem"); errors.Is(err, fs.ErrNotExist) {
+		t.Skip("missing eu_dem test data")
+	}
+
 	fsys := os.DirFS("testdata/eu_dem")
 	euDEM, err := elevation.NewEUDEM(fsys)
 	assert.NoError(t, err)
