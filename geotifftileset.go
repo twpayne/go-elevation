@@ -62,7 +62,7 @@ func NewGeoTIFFTileSet(options ...GeoTIFFTileSetOption) (*GeoTIFFTileSet, error)
 	s.geoTIFFTileCache, err = otter.New(&otter.Options[TileCoord, *GeoTIFFTile]{
 		MaximumSize: s.cacheSize,
 		OnDeletion: func(e otter.DeletionEvent[TileCoord, *GeoTIFFTile]) {
-			e.Value.Close()
+			_ = e.Value.Close()
 		},
 	})
 	if err != nil {

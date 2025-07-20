@@ -97,7 +97,7 @@ func NewGeoTIFFTile(fsys fs.FS, filename string, options ...GeoTIFFTileOption) (
 	f.file = file.(*os.File)
 	defer func() {
 		if !ok {
-			f.file.Close()
+			_ = f.file.Close()
 		}
 	}()
 
