@@ -1,6 +1,7 @@
 package elevation_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
@@ -14,7 +15,7 @@ type testRaster struct {
 	samples [][]float64
 }
 
-func (t *testRaster) Samples(coords []elevation.Coord) ([]float64, error) {
+func (t *testRaster) Samples(ctx context.Context, coords []elevation.Coord) ([]float64, error) {
 	samples := make([]float64, len(coords))
 	for i, coord := range coords {
 		samples[i] = t.samples[coord.Y/t.scaleY][coord.X/t.scaleX]
@@ -67,7 +68,7 @@ func TestInterpolateBilinear(t *testing.T) {
 			},
 		},
 	} {
-		actual, err := elevation.InterpolateBilinear(tc.raster, tc.coords)
+		actual, err := elevation.InterpolateBilinear(t.Context(), tc.raster, tc.coords)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.expected, actual)
 	}

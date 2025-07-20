@@ -7,12 +7,12 @@ package elevation
 // FIXME interpolation
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"math"
-	"sync"
 
-	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/maypok86/otter/v2"
 )
 
 // A TileCoordFunc returns the tile coordinate for a coordinate.
@@ -23,18 +23,16 @@ type TileFilenameFunc func(TileCoord) string
 
 // A GeoTIFFTileSet is a set of GeoTIFF tiles.
 type GeoTIFFTileSet struct {
-	mutex              sync.Mutex
 	fsys               fs.FS
 	canaryFilename     string
 	srid               int
 	tileCoordFunc      TileCoordFunc
 	tileFilenameFunc   TileFilenameFunc
-	missingTiles       sync.Map
 	geoTIFFTileOptions []GeoTIFFTileOption
 	cacheSize          int
 	scaleX             int
 	scaleY             int
-	geoTIFFTileCache   *lru.Cache[TileCoord, *GeoTIFFTile]
+	geoTIFFTileCache   *otter.Cache[TileCoord, *GeoTIFFTile]
 }
 
 // A GeoTIFFTileSetOption sets an option on a GeoTIFFTileSet.
@@ -61,8 +59,11 @@ func NewGeoTIFFTileSet(options ...GeoTIFFTileSetOption) (*GeoTIFFTileSet, error)
 	}
 
 	var err error
-	s.geoTIFFTileCache, err = lru.NewWithEvict(s.cacheSize, func(key TileCoord, value *GeoTIFFTile) {
-		value.Close()
+	s.geoTIFFTileCache, err = otter.New(&otter.Options[TileCoord, *GeoTIFFTile]{
+		MaximumSize: s.cacheSize,
+		OnDeletion: func(e otter.DeletionEvent[TileCoord, *GeoTIFFTile]) {
+			e.Value.Close()
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -121,7 +122,7 @@ func WithTileFilenameFunc(tileFilenameFunc TileFilenameFunc) GeoTIFFTileSetOptio
 
 // Samples returns the samples at coords. Missing samples are represented by
 // NaNs.
-func (s *GeoTIFFTileSet) Samples(coords []Coord) ([]float64, error) {
+func (s *GeoTIFFTileSet) Samples(ctx context.Context, coords []Coord) ([]float64, error) {
 	samples := make([]float64, len(coords))
 
 	// Group indexes by tile coord.
@@ -151,7 +152,7 @@ func (s *GeoTIFFTileSet) Samples(coords []Coord) ([]float64, error) {
 
 	// Populate samples one tile at a time.
 	for tileCoord, group := range groupsByTileCoord {
-		tile, err := s.getTileCached(tileCoord)
+		tile, err := s.getTileCached(ctx, tileCoord)
 		if err != nil {
 			return nil, err
 		}
@@ -161,7 +162,7 @@ func (s *GeoTIFFTileSet) Samples(coords []Coord) ([]float64, error) {
 			}
 			continue
 		}
-		localSamples, err := tile.Samples(group.coords)
+		localSamples, err := tile.Samples(ctx, group.coords)
 		if err != nil {
 			return nil, err
 		}
@@ -184,12 +185,11 @@ func (s *GeoTIFFTileSet) Scale() (int, int) {
 }
 
 // getTile returns the tile at the given tile coordinate.
-func (s *GeoTIFFTileSet) getTile(tileCoord TileCoord) (*GeoTIFFTile, error) {
+func (s *GeoTIFFTileSet) getTile(ctx context.Context, tileCoord TileCoord) (*GeoTIFFTile, error) {
 	filename := s.tileFilenameFunc(tileCoord)
 	switch geoTIFFTile, err := NewGeoTIFFTile(s.fsys, filename, s.geoTIFFTileOptions...); {
 	case errors.Is(err, fs.ErrNotExist):
-		s.missingTiles.Store(tileCoord, struct{}{})
-		return nil, nil
+		return nil, otter.ErrNotFound
 	case err != nil:
 		return nil, err
 	default:
@@ -199,32 +199,6 @@ func (s *GeoTIFFTileSet) getTile(tileCoord TileCoord) (*GeoTIFFTile, error) {
 
 // getTileCached returns the tile at the give tile coordinate, using the cache
 // if possible.
-func (s *GeoTIFFTileSet) getTileCached(tileCoord TileCoord) (*GeoTIFFTile, error) {
-	if _, ok := s.missingTiles.Load(tileCoord); ok {
-		return nil, nil
-	}
-
-	if tile, ok := s.geoTIFFTileCache.Get(tileCoord); ok {
-		return tile, nil
-	}
-
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if _, ok := s.missingTiles.Load(tileCoord); ok {
-		return nil, nil
-	}
-
-	if tile, ok := s.geoTIFFTileCache.Get(tileCoord); ok {
-		return tile, nil
-	}
-
-	tile, err := s.getTile(tileCoord)
-	if err != nil {
-		return nil, err
-	}
-
-	s.geoTIFFTileCache.Add(tileCoord, tile)
-
-	return tile, nil
+func (s *GeoTIFFTileSet) getTileCached(ctx context.Context, tileCoord TileCoord) (*GeoTIFFTile, error) {
+	return s.geoTIFFTileCache.Get(ctx, tileCoord, otter.LoaderFunc[TileCoord, *GeoTIFFTile](s.getTile))
 }

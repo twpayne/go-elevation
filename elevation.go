@@ -1,5 +1,7 @@
 package elevation
 
+import "context"
+
 // A Coord is a coordinate.
 type Coord struct {
 	X int
@@ -13,6 +15,6 @@ type TileCoord struct {
 }
 
 type Raster interface {
-	Samples(coords []Coord) ([]float64, error)
+	Samples(ctx context.Context, coords []Coord) ([]float64, error)
 	Scale() (int, int)
 }

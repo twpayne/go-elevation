@@ -1,6 +1,8 @@
 package elevation
 
-func InterpolateBilinear(raster Raster, coords [][]float64) ([]float64, error) {
+import "context"
+
+func InterpolateBilinear(ctx context.Context, raster Raster, coords [][]float64) ([]float64, error) {
 	scaleX, scaleY := raster.Scale()
 	rasterCoords := make([]Coord, 4*len(coords))
 	for i, coord := range coords {
@@ -13,7 +15,7 @@ func InterpolateBilinear(raster Raster, coords [][]float64) ([]float64, error) {
 		rasterCoords[4*i+2] = Coord{X: x0, Y: y1}
 		rasterCoords[4*i+3] = Coord{X: x1, Y: y1}
 	}
-	samples, err := raster.Samples(rasterCoords)
+	samples, err := raster.Samples(ctx, rasterCoords)
 	if err != nil {
 		return nil, err
 	}

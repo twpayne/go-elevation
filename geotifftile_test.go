@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
+	"github.com/maypok86/otter/v2"
 )
 
 func TestNewGeoTIFFTile(t *testing.T) {
@@ -47,7 +48,7 @@ func TestGeoTIFFFile_Sample(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		actual, err := geoTIFFTile.Sample(tc.coord)
+		actual, err := geoTIFFTile.Sample(t.Context(), tc.coord)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.expected, actual)
 	}
@@ -58,7 +59,7 @@ func TestGeoTIFFFile_Sample(t *testing.T) {
 		coords[i] = tc.coord
 		expected[i] = tc.expected
 	}
-	actual, err := geoTIFFTile.Samples(coords)
+	actual, err := geoTIFFTile.Samples(t.Context(), coords)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 }
@@ -105,7 +106,7 @@ func TestGeoTIFFFile_Pixel(t *testing.T) {
 			{X: tc.center.X, Y: tc.center.Y - 25},
 			{X: tc.center.X - 25, Y: tc.center.Y},
 		}
-		actual, err := geoTIFFTile.Samples(coords)
+		actual, err := geoTIFFTile.Samples(t.Context(), coords)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.expected, actual)
 	}
@@ -115,8 +116,9 @@ func visitAllTiles(t *testing.T, f *GeoTIFFTile) {
 	t.Helper()
 	for r := range f.tilesDown {
 		for c := range f.tilesAcross {
-			_, err := f.getTileSamplesCached(TileCoord{C: c, R: r})
-			assert.NoError(t, err)
+			if _, err := f.getTileSamplesCached(t.Context(), TileCoord{C: c, R: r}); err != nil {
+				assert.IsError(t, err, otter.ErrNotFound)
+			}
 		}
 	}
 }
@@ -136,10 +138,10 @@ func testSampleSamplesEquivalence(t *testing.T, f *GeoTIFFTile) {
 		sampleCoords := make([]float64, n)
 		for i, coord := range coords {
 			var err error
-			sampleCoords[i], err = f.Sample(coord)
+			sampleCoords[i], err = f.Sample(t.Context(), coord)
 			assert.NoError(t, err)
 		}
-		samplesCoords, err := f.Samples(coords)
+		samplesCoords, err := f.Samples(t.Context(), coords)
 		assert.NoError(t, err)
 		assert.Equal(t, sampleCoords, samplesCoords)
 	}

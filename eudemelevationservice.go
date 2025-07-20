@@ -1,6 +1,7 @@
 package elevation
 
 import (
+	"context"
 	"io/fs"
 
 	"github.com/twpayne/go-proj/v11"
@@ -26,18 +27,18 @@ func NewEUDEMElevationService(fsys fs.FS, options ...GeoTIFFTileSetOption) (*EUD
 	}, nil
 }
 
-func (s *EUDEMElevationService) Elevation(coords [][]float64) ([]float64, error) {
-	return InterpolateBilinear(s.geoTIFFFileSet, coords)
+func (s *EUDEMElevationService) Elevation(ctx context.Context, coords [][]float64) ([]float64, error) {
+	return InterpolateBilinear(ctx, s.geoTIFFFileSet, coords)
 }
 
-func (s *EUDEMElevationService) Elevation4326(coords4326 [][]float64) ([]float64, error) {
+func (s *EUDEMElevationService) Elevation4326(ctx context.Context, coords4326 [][]float64) ([]float64, error) {
 	coords3035 := cloneCoords(coords4326)
 	flipCoords(coords3035)
 	if err := s.pj.ForwardFloat64Slices(coords3035); err != nil {
 		return nil, err
 	}
 	flipCoords(coords3035)
-	return s.Elevation(coords3035)
+	return s.Elevation(ctx, coords3035)
 }
 
 func cloneCoords(coords [][]float64) [][]float64 {

@@ -2,6 +2,7 @@ package elevation
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -9,12 +10,11 @@ import (
 	"math"
 	"os"
 	"slices"
-	"sync"
 
 	"github.com/google/tiff"
 	_ "github.com/google/tiff/bigtiff"
 	_ "github.com/google/tiff/geotiff"
-	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/maypok86/otter/v2"
 	"golang.org/x/image/tiff/lzw"
 )
 
@@ -27,7 +27,6 @@ var (
 
 // A GeoTIFFTile is an open GeoTIFF file.
 type GeoTIFFTile struct {
-	mutex                     sync.Mutex
 	file                      *os.File
 	imageWidth                int
 	imageLength               int
@@ -41,9 +40,8 @@ type GeoTIFFTile struct {
 	tileSampleCount           int
 	tileByteCountUncompressed int
 	tileCacheSizeBytes        int
-	tileCache                 *lru.Cache[TileCoord, []float32]
+	tileSamplesCache          *otter.Cache[TileCoord, []float32]
 	emptyTileBytes            []byte
-	emptyTiles                sync.Map
 	scaleX                    int
 	scaleY                    int
 	translateX                int
@@ -153,7 +151,9 @@ func NewGeoTIFFTile(fsys fs.FS, filename string, options ...GeoTIFFTileOption) (
 	f.tileByteCountUncompressed = f.tileSampleCount * int(ifd.BitsPerSample) / 8
 
 	tileCacheCount := max(f.tileCacheSizeBytes/f.tileByteCountUncompressed, 1)
-	f.tileCache, err = lru.New[TileCoord, []float32](tileCacheCount)
+	f.tileSamplesCache, err = otter.New(&otter.Options[TileCoord, []float32]{
+		MaximumSize: tileCacheCount,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -190,22 +190,25 @@ func (f *GeoTIFFTile) Close() error {
 }
 
 // Sample returns a single sample from f.
-func (f *GeoTIFFTile) Sample(coord Coord) (float64, error) {
+func (f *GeoTIFFTile) Sample(ctx context.Context, coord Coord) (float64, error) {
 	localCoord := f.localCoord(coord)
 	localTileCoord, ok := f.localTileCoord(localCoord)
 	if !ok {
 		return math.NaN(), nil
 	}
-	tileSamples, err := f.getTileSamplesCached(localTileCoord)
-	if err != nil {
+	switch tileSamples, err := f.getTileSamplesCached(ctx, localTileCoord); {
+	case errors.Is(err, otter.ErrNotFound):
+		return math.NaN(), nil
+	case err != nil:
 		return 0, err
+	default:
+		return f.tileSample(tileSamples, localCoord), nil
 	}
-	return f.tileSample(tileSamples, localCoord), nil
 }
 
 // Samples returns multiple samples from f. It is significantly faster than
 // calling [Sample] for each coordinate.
-func (f *GeoTIFFTile) Samples(coords []Coord) ([]float64, error) {
+func (f *GeoTIFFTile) Samples(ctx context.Context, coords []Coord) ([]float64, error) {
 	localCoords := make([]Coord, len(coords))
 	for i, coord := range coords {
 		localCoords[i] = f.localCoord(coord)
@@ -226,13 +229,18 @@ func (f *GeoTIFFTile) Samples(coords []Coord) ([]float64, error) {
 
 	// Populate samples one local tile at a time.
 	for localTileCoord, indexes := range indexesByLocalTileCoord {
-		tileSamples, err := f.getTileSamplesCached(localTileCoord)
-		if err != nil {
-			return nil, err
-		}
 		slices.Sort(indexes)
-		for _, index := range indexes {
-			samples[index] = f.tileSample(tileSamples, localCoords[index])
+		switch tileSamples, err := f.getTileSamplesCached(ctx, localTileCoord); {
+		case errors.Is(err, otter.ErrNotFound):
+			for _, index := range indexes {
+				samples[index] = math.NaN()
+			}
+		case err != nil:
+			return nil, err
+		default:
+			for _, index := range indexes {
+				samples[index] = f.tileSample(tileSamples, localCoords[index])
+			}
 		}
 	}
 
@@ -240,7 +248,8 @@ func (f *GeoTIFFTile) Samples(coords []Coord) ([]float64, error) {
 }
 
 // getCompressedTileData returns the compressed tile data for the data at
-// localTileCoord. If the tile is known to be empty, it returns nil.
+// localTileCoord. If the tile is known to be empty, it returns the error
+// otter.ErrNotFound.
 func (f *GeoTIFFTile) getCompressedTileData(localTileCoord TileCoord) ([]byte, error) {
 	tileIndex := localTileCoord.C + f.tilesAcross*localTileCoord.R
 	tileByteCount := f.tileByteCounts[tileIndex]
@@ -252,7 +261,7 @@ func (f *GeoTIFFTile) getCompressedTileData(localTileCoord TileCoord) ([]byte, e
 	case n != int(tileByteCount):
 		return nil, errShortRead
 	case f.emptyTileBytes != nil && bytes.Equal(compressedData, f.emptyTileBytes):
-		return nil, nil
+		return nil, otter.ErrNotFound
 	default:
 		return compressedData, nil
 	}
@@ -291,19 +300,14 @@ func (t *GeoTIFFTile) localCoord(coord Coord) Coord {
 }
 
 // getTileSamples returns the tile samples at localTileCoord.
-func (f *GeoTIFFTile) getTileSamples(localTileCoord TileCoord) ([]float32, error) {
+func (f *GeoTIFFTile) getTileSamples(ctx context.Context, localTileCoord TileCoord) ([]float32, error) {
 	// Retrieve the compressed tile data.
 	compressedTileData, err := f.getCompressedTileData(localTileCoord)
 	if err != nil {
 		return nil, err
 	}
 
-	// If the tile is empty return immediately.
-	if compressedTileData == nil {
-		return nil, nil
-	}
-
-	// Otherwise, decompress the tile data and decode it.
+	// Decompress the tile data and decode it.
 	tileData, err := f.decompressTileData(compressedTileData)
 	if err != nil {
 		return nil, err
@@ -324,7 +328,7 @@ func (f *GeoTIFFTile) getTileSamples(localTileCoord TileCoord) ([]float32, error
 		}
 		if isEmptyTile {
 			f.emptyTileBytes = compressedTileData
-			return nil, nil
+			return nil, otter.ErrNotFound
 		}
 	}
 
@@ -332,45 +336,8 @@ func (f *GeoTIFFTile) getTileSamples(localTileCoord TileCoord) ([]float32, error
 }
 
 // tileSamplesCache returns the tile at localTileCoord using f's cache.
-func (f *GeoTIFFTile) getTileSamplesCached(localTileCoord TileCoord) ([]float32, error) {
-	// Check if the tile is known to be empty.
-	if _, ok := f.emptyTiles.Load(localTileCoord); ok {
-		return nil, nil
-	}
-
-	// Get tile samples from the cache, if possible.
-	if tileSamples, ok := f.tileCache.Get(localTileCoord); ok {
-		return tileSamples, nil
-	}
-
-	f.mutex.Lock()
-	defer f.mutex.Unlock()
-
-	// Check if the tile is known to be empty.
-	if _, ok := f.emptyTiles.Load(localTileCoord); ok {
-		return nil, nil
-	}
-
-	// Retry getting tile samples from the cache, in case the cache was populated
-	// while the mutex was locked.
-	if tileSamples, ok := f.tileCache.Get(localTileCoord); ok {
-		return tileSamples, nil
-	}
-
-	// Otherwise, retrieve the tile samples and populate the cache.
-	tileSamples, err := f.getTileSamples(localTileCoord)
-	if err != nil {
-		return nil, err
-	}
-
-	// Store the samples, either as a known empty tile or in the cache.
-	if tileSamples == nil {
-		f.emptyTiles.Store(localTileCoord, struct{}{})
-	} else {
-		f.tileCache.Add(localTileCoord, tileSamples)
-	}
-
-	return tileSamples, nil
+func (f *GeoTIFFTile) getTileSamplesCached(ctx context.Context, localTileCoord TileCoord) ([]float32, error) {
+	return f.tileSamplesCache.Get(ctx, localTileCoord, otter.LoaderFunc[TileCoord, []float32](f.getTileSamples))
 }
 
 // localTileCoord returns the local tile coord for a given coordinate.
@@ -386,9 +353,6 @@ func (f *GeoTIFFTile) localTileCoord(localCoord Coord) (TileCoord, bool) {
 
 // tileSample returns the sample from tileSamples at localCoord.
 func (f *GeoTIFFTile) tileSample(tileSamples []float32, localCoord Coord) float64 {
-	if tileSamples == nil {
-		return math.NaN()
-	}
 	sample := tileSamples[localCoord.X%f.tileWidth+(localCoord.Y%f.tileLength)*f.tileWidth]
 	if sample == noData {
 		return math.NaN()

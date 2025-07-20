@@ -19,7 +19,7 @@ func TestEUDEMElevationService(t *testing.T) {
 	euDEMElevationService, err := elevation.NewEUDEMElevationService(fsys)
 	assert.NoError(t, err)
 
-	actual, err := euDEMElevationService.Elevation4326([][]float64{
+	actual, err := euDEMElevationService.Elevation4326(t.Context(), [][]float64{
 		{-31.216667, 39.466667},
 	})
 	assert.NoError(t, err)

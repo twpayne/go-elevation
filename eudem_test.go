@@ -106,7 +106,7 @@ func TestEUDEM_Samples(t *testing.T) {
 					t.Skip(err)
 				}
 			}
-			actual, err := euDEM.Samples(tc.coords)
+			actual, err := euDEM.Samples(t.Context(), tc.coords)
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expected, actual)
 		})
@@ -119,7 +119,7 @@ func BenchmarkSingleTileSingleSample(b *testing.B) {
 	assert.NoError(b, err)
 	b.ResetTimer()
 	for range b.N {
-		samples, err := euDEM.Samples([]elevation.Coord{
+		samples, err := euDEM.Samples(b.Context(), []elevation.Coord{
 			{
 				X: 947000 + r.IntN(7000),
 				Y: 2766000 + r.IntN(7000),
@@ -144,7 +144,7 @@ func BenchmarkSingleTileSixteenCloseSamples(b *testing.B) {
 				Y: 2766000 + r.IntN(7000),
 			}
 		}
-		samples, err := euDEM.Samples(coords)
+		samples, err := euDEM.Samples(b.Context(), coords)
 		assert.NoError(b, err)
 		assert.Equal(b, len(coords), len(samples))
 		for _, sample := range samples {

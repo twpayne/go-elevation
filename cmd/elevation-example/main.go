@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,7 +11,7 @@ import (
 	"github.com/twpayne/go-elevation"
 )
 
-func run() error {
+func run(ctx context.Context) error {
 	euDEM := flag.String("eu_dem-path", os.Getenv("EU_DEM_PATH"), "path to EU DEM data")
 	flag.Parse()
 
@@ -35,7 +36,7 @@ func run() error {
 	}
 
 	coords := [][]float64{{lon, lat}}
-	elevations, err := es.Elevation4326(coords)
+	elevations, err := es.Elevation4326(ctx, coords)
 	if err != nil {
 		return nil
 	}
@@ -45,7 +46,7 @@ func run() error {
 }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(context.Background()); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
