@@ -152,22 +152,21 @@ func (s *GeoTIFFTileSet) Samples(ctx context.Context, coords []Coord) ([]float64
 
 	// Populate samples one tile at a time.
 	for tileCoord, group := range groupsByTileCoord {
-		tile, err := s.getTileCached(ctx, tileCoord)
-		if err != nil {
-			return nil, err
-		}
-		if tile == nil {
+		switch tile, err := s.getTileCached(ctx, tileCoord); {
+		case errors.Is(err, otter.ErrNotFound):
 			for _, index := range group.indexes {
 				samples[index] = math.NaN()
 			}
-			continue
-		}
-		localSamples, err := tile.Samples(ctx, group.coords)
-		if err != nil {
+		case err != nil:
 			return nil, err
-		}
-		for localIndex, index := range group.indexes {
-			samples[index] = localSamples[localIndex]
+		default:
+			localSamples, err := tile.Samples(ctx, group.coords)
+			if err != nil {
+				return nil, err
+			}
+			for localIndex, index := range group.indexes {
+				samples[index] = localSamples[localIndex]
+			}
 		}
 	}
 
