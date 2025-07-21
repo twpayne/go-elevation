@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"math"
 	"os"
-	"slices"
 
 	"github.com/google/tiff"
 	_ "github.com/google/tiff/bigtiff"
@@ -229,7 +228,6 @@ func (f *GeoTIFFTile) Samples(ctx context.Context, coords []Coord) ([]float64, e
 
 	// Populate samples one local tile at a time.
 	for localTileCoord, indexes := range indexesByLocalTileCoord {
-		slices.Sort(indexes)
 		switch tileSamples, err := f.getTileSamplesCached(ctx, localTileCoord); {
 		case errors.Is(err, otter.ErrNotFound):
 			for _, index := range indexes {
